@@ -1,3 +1,4 @@
+
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
@@ -16,6 +17,15 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // If you use Supabase Storage for avatars or resource images,
+      // add your Supabase project's image hostname here.
+      // Example:
+      // {
+      //   protocol: 'https',
+      //   hostname: 'yourprojectid.supabase.co',
+      //   port: '',
+      //   pathname: '/storage/v1/object/public/**',
+      // },
     ],
   },
 };

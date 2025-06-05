@@ -2,38 +2,72 @@
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
-import { mockResources, type Resource } from '@/lib/mock-data';
+import type { Resource } from '@/lib/mock-data'; // Keep Resource interface
+import { supabase } from '@/lib/supabaseClient'; // Import Supabase client
 import { ResourceCard } from './resource-card';
 import { FilterControls } from './filter-controls';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Search } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 
 export function ResourceDisplayPage() {
   const [resources, setResources] = useState<Resource[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
-  const [useRegex, setUseRegex] = useState(false); // Not implemented in UI yet for simplicity
 
   useEffect(() => {
-    // Simulate fetching data
-    setResources(mockResources);
+    const fetchResources = async () => {
+      setIsLoading(true);
+      setError(null);
+      // IMPORTANT: You need to create a 'resources' table in your Supabase project
+      // with columns matching the Resource interface (id, name, type, course, year, size, description, imageUrl, keywords, dataAiHint).
+      // Ensure RLS (Row Level Security) is set up appropriately for read access.
+      const { data, error: dbError } = await supabase
+        .from('resources')
+        .select('*');
+
+      if (dbError) {
+        console.error('Error fetching resources:', dbError);
+        setError(`Failed to load resources: ${dbError.message}. Please ensure the 'resources' table exists and RLS is configured.`);
+        setResources([]);
+      } else {
+        // Assuming the data from Supabase matches the Resource[] structure.
+        // You might need to map the data if column names or types differ.
+        setResources(data as Resource[]);
+      }
+      setIsLoading(false);
+    };
+
+    fetchResources();
   }, []);
   
-  const availableYears = useMemo(() => [...new Set(mockResources.map(r => r.year))].sort((a,b) => b-a), []);
-  const availableTypes = useMemo(() => [...new Set(mockResources.map(r => r.type))].sort(), []);
-  const availableCourses = useMemo(() => [...new Set(mockResources.map(r => r.course))].sort(), []);
+  // These available* calculations should use the fetched resources
+  const availableYears = useMemo(() => {
+    if (!resources) return [];
+    return [...new Set(resources.map(r => r.year))].sort((a,b) => b-a);
+  }, [resources]);
+  
+  const availableTypes = useMemo(() => {
+    if (!resources) return [];
+    return [...new Set(resources.map(r => r.type))].sort();
+  }, [resources]);
+
+  const availableCourses = useMemo(() => {
+    if (!resources) return [];
+    return [...new Set(resources.map(r => r.course))].sort();
+  }, [resources]);
+
 
   const filteredResources = useMemo(() => {
+    if (!resources) return [];
     return resources.filter((resource) => {
       const matchesSearchTerm = searchTerm
         ? resource.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          resource.keywords.some(keyword => keyword.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (resource.keywords && resource.keywords.some(keyword => keyword.toLowerCase().includes(searchTerm.toLowerCase()))) ||
           resource.description.toLowerCase().includes(searchTerm.toLowerCase())
         : true;
       const matchesYear = selectedYear ? resource.year.toString() === selectedYear : true;
@@ -51,10 +85,26 @@ export function ResourceDisplayPage() {
     setSelectedCourse('');
   };
 
+  if (isLoading) {
+    return (
+      <div className="container mx-auto py-2 text-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto my-8" />
+        <p>Loading resources...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto py-2">
       <h1 className="font-headline text-3xl font-bold mb-8 text-primary">University Resources</h1>
       
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTitle className="font-headline">Error Loading Resources</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       <FilterControls
         searchTerm={searchTerm}
         setSearchTerm={setSearchTerm}
@@ -81,7 +131,7 @@ export function ResourceDisplayPage() {
           <Search className="h-4 w-4" />
           <AlertTitle className="font-headline">No Resources Found</AlertTitle>
           <AlertDescription>
-            Try adjusting your search terms or filters.
+            Try adjusting your search terms or filters, or check back later if resources are still being loaded.
           </AlertDescription>
         </Alert>
       )}

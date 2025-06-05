@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 
 interface AuthFormProps {
   mode: 'login' | 'register';
@@ -18,37 +19,38 @@ export function AuthForm({ mode }: AuthFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState(''); // Only for register mode
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    setIsSubmitting(true);
 
     if (mode === 'login') {
-      if (email === 'user@landmark.edu' && password === 'password123') {
-        login(email, 'Demo User');
+      const { error } = await login(email, password);
+      if (error) {
+        toast({ title: 'Login Failed', description: error.message, variant: 'destructive' });
+      } else {
         toast({ title: 'Login Successful', description: 'Welcome back!' });
         router.push('/');
-      } else {
-        toast({ title: 'Login Failed', description: 'Invalid email or password.', variant: 'destructive' });
       }
     } else { // register mode
       if (!name.trim()) {
         toast({ title: 'Registration Failed', description: 'Name is required.', variant: 'destructive' });
-        setIsLoading(false);
+        setIsSubmitting(false);
         return;
       }
-      login(email, name); // Simulate registration and login
-      toast({ title: 'Registration Successful', description: `Welcome, ${name}!` });
-      router.push('/');
+      const { error } = await register(email, password, name);
+      if (error) {
+        toast({ title: 'Registration Failed', description: error.message, variant: 'destructive' });
+      } else {
+        toast({ title: 'Registration Successful', description: `Welcome, ${name}! Please check your email to confirm your account if required.` });
+        router.push('/'); // Or to a verification pending page
+      }
     }
-    setIsLoading(false);
+    setIsSubmitting(false);
   };
 
   return (
@@ -63,6 +65,7 @@ export function AuthForm({ mode }: AuthFormProps) {
             onChange={(e) => setName(e.target.value)}
             required
             placeholder="Your Full Name"
+            disabled={isSubmitting}
           />
         </div>
       )}
@@ -74,7 +77,8 @@ export function AuthForm({ mode }: AuthFormProps) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          placeholder="user@landmark.edu"
+          placeholder="user@example.com"
+          disabled={isSubmitting}
         />
       </div>
       <div className="space-y-2">
@@ -86,10 +90,11 @@ export function AuthForm({ mode }: AuthFormProps) {
           onChange={(e) => setPassword(e.target.value)}
           required
           placeholder="••••••••"
+          disabled={isSubmitting}
         />
       </div>
-      <Button type="submit" className="w-full font-body" disabled={isLoading}>
-        {isLoading ? 'Processing...' : mode === 'login' ? 'Login' : 'Register'}
+      <Button type="submit" className="w-full font-body" disabled={isSubmitting}>
+        {isSubmitting ? <Loader2 className="animate-spin" /> : mode === 'login' ? 'Login' : 'Register'}
       </Button>
       <div className="text-center text-sm">
         {mode === 'login' ? (

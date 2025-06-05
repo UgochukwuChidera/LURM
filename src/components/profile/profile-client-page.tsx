@@ -8,50 +8,84 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import Image from 'next/image';
-import { UploadCloud, UserCircle } from 'lucide-react';
+import { UploadCloud, UserCircle, Loader2, LogOutIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
 export function ProfileClientPage() {
-  const { user, isAuthenticated, updateAvatar, logout } = useAuth();
-  const [name, setName] = useState(user?.name || '');
-  const [email, setEmail] = useState(user?.email || '');
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatarUrl || null);
+  const { user, isAuthenticated, isLoading: authLoading, logout, updateUserMetadata, updatePassword } = useAuth();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [avatarUrlInput, setAvatarUrlInput] = useState(''); // Changed from file to URL string
+  
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!authLoading && !isAuthenticated) {
       router.push('/login');
     } else if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
-      setAvatarPreview(user.avatarUrl || null);
+      setAvatarUrlInput(user.avatarUrl || '');
     }
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, user, router, authLoading]);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setAvatarFile(file);
-      setAvatarPreview(URL.createObjectURL(file));
-    }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Here you would typically send data to a backend
-    if (avatarFile && avatarPreview) {
-       // In a real app, upload avatarFile and get URL, then:
-       updateAvatar(avatarPreview); // Using preview URL for mock
+    if (!user) return;
+    setIsSubmitting(true);
+
+    let hasError = false;
+
+    // Update name and/or avatar URL
+    const metadataUpdates: { name?: string; avatarUrl?: string } = {};
+    if (name !== user.name) metadataUpdates.name = name;
+    if (avatarUrlInput !== user.avatarUrl) metadataUpdates.avatarUrl = avatarUrlInput;
+
+    if (Object.keys(metadataUpdates).length > 0) {
+      const { error } = await updateUserMetadata(metadataUpdates);
+      if (error) {
+        toast({ title: 'Profile Update Failed', description: `Could not update profile: ${error.message}`, variant: 'destructive' });
+        hasError = true;
+      }
     }
-    toast({ title: 'Profile Updated', description: 'Your profile information has been saved.' });
+
+    // Update password
+    if (newPassword) {
+      if (newPassword !== confirmPassword) {
+        toast({ title: 'Password Mismatch', description: 'New passwords do not match.', variant: 'destructive' });
+        hasError = true;
+      } else {
+        const { error: pwdError } = await updatePassword(newPassword);
+        if (pwdError) {
+          toast({ title: 'Password Update Failed', description: pwdError.message, variant: 'destructive' });
+          hasError = true;
+        } else {
+          setNewPassword('');
+          setConfirmPassword('');
+        }
+      }
+    }
+    
+    if (!hasError) {
+      toast({ title: 'Profile Updated', description: 'Your profile information has been saved.' });
+    }
+    setIsSubmitting(false);
   };
 
-  if (!isAuthenticated || !user) {
-    return <div className="flex items-center justify-center h-full"><p>Loading profile or redirecting...</p></div>;
+  if (authLoading || (!isAuthenticated && !user)) { // Show loading if auth is loading or if not authenticated yet but no user object
+    return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   }
+  
+  if (!user) { // Should be caught by useEffect redirect, but as a fallback
+    return <div className="flex items-center justify-center h-full"><p>Redirecting to login...</p></div>;
+  }
+
 
   return (
     <div className="container mx-auto py-8">
@@ -66,7 +100,7 @@ export function ProfileClientPage() {
           <CardContent className="space-y-6">
             <div className="flex flex-col items-center space-y-4">
               <Image
-                src={avatarPreview || `https://placehold.co/128x128.png?text=${name.charAt(0).toUpperCase()}`}
+                src={avatarUrlInput || `https://placehold.co/128x128.png?text=${(user.name || user.email || 'U').charAt(0).toUpperCase()}`}
                 alt="User Avatar"
                 width={128}
                 height={128}
@@ -74,31 +108,39 @@ export function ProfileClientPage() {
                 data-ai-hint="user avatar"
               />
               <div className="w-full max-w-xs">
-                <Label htmlFor="avatar" className="sr-only">Change Avatar</Label>
-                <Input id="avatar" type="file" accept="image/*" onChange={handleAvatarChange} />
-                <p className="text-xs text-muted-foreground mt-1 text-center">PNG, JPG, GIF up to 2MB.</p>
+                <Label htmlFor="avatarUrl">Avatar Image URL</Label>
+                <Input 
+                  id="avatarUrl" 
+                  type="url" 
+                  value={avatarUrlInput} 
+                  onChange={(e) => setAvatarUrlInput(e.target.value)} 
+                  placeholder="https://example.com/avatar.png"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-muted-foreground mt-1 text-center">Enter a publicly accessible image URL.</p>
               </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your Full Name" />
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your Full Name" disabled={isSubmitting} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input id="email" type="email" value={email} disabled placeholder="your.email@landmark.edu" />
             </div>
              <div className="space-y-2">
-              <Label htmlFor="password">Change Password</Label>
-              <Input id="password" type="password" placeholder="New Password" />
-              <Input id="confirmPassword" type="password" placeholder="Confirm New Password" className="mt-2"/>
+              <Label htmlFor="newPassword">Change Password (optional)</Label>
+              <Input id="newPassword" type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={isSubmitting} />
+              <Input id="confirmPassword" type="password" placeholder="Confirm New Password" className="mt-2" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={isSubmitting}/>
             </div>
           </CardContent>
           <CardFooter className="flex justify-between">
-            <Button variant="destructive" type="button" onClick={() => { logout(); router.push('/');}}>
-              Logout
+             <Button variant="outline" type="button" onClick={() => { logout(); router.push('/');}} disabled={isSubmitting}>
+              <LogOutIcon className="mr-2 h-4 w-4" /> Logout
             </Button>
-            <Button type="submit" className="font-body">
-              <UploadCloud className="mr-2 h-4 w-4" /> Save Changes
+            <Button type="submit" className="font-body" disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />} 
+              Save Changes
             </Button>
           </CardFooter>
         </form>
