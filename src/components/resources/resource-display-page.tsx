@@ -11,9 +11,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Search, Loader2, FilterX, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 
 export function ResourceDisplayPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const router = useRouter();
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,23 +35,23 @@ export function ResourceDisplayPage() {
     // Fetch distinct years
     const { data: yearsData, error: yearsError } = await supabase
       .from('resources')
-      .select('year', { count: 'exact', head: false }) // Use rpc for distinct if performance is an issue
+      .select('year', { count: 'exact', head: false }) 
       .order('year', { ascending: false });
-    if (yearsError) console.error("Error fetching years:", yearsError);
+    if (yearsError) console.error("Error fetching years:", yearsError.message, yearsError.details, yearsError.hint, yearsError.code);
     else setAvailableYears([...new Set(yearsData?.map(r => r.year) || [])].sort((a,b) => b-a));
 
     // Fetch distinct types
     const { data: typesData, error: typesError } = await supabase
       .from('resources')
       .select('type', { count: 'exact', head: false });
-    if (typesError) console.error("Error fetching types:", typesError);
+    if (typesError) console.error("Error fetching types:", typesError.message, typesError.details, typesError.hint, typesError.code);
     else setAvailableTypes([...new Set(typesData?.map(r => r.type) || [])].sort());
     
     // Fetch distinct courses
     const { data: coursesData, error: coursesError } = await supabase
       .from('resources')
       .select('course', { count: 'exact', head: false });
-    if (coursesError) console.error("Error fetching courses:", coursesError);
+    if (coursesError) console.error("Error fetching courses:", coursesError.message, coursesError.details, coursesError.hint, coursesError.code);
     else setAvailableCourses([...new Set(coursesData?.map(r => r.course) || [])].sort());
   }, []);
 
@@ -61,8 +63,6 @@ export function ResourceDisplayPage() {
     let query = supabase.from('resources').select('*');
 
     if (filters?.term) {
-      // Using or for searching across multiple fields. Adjust as needed.
-      // This is a basic text search. For more advanced search, consider pg_trgm or full-text search.
       query = query.or(`name.ilike.%${filters.term}%,description.ilike.%${filters.term}%,keywords.cs.{${filters.term}}`);
     }
     if (filters?.year) {
@@ -75,12 +75,12 @@ export function ResourceDisplayPage() {
       query = query.eq('course', filters.course);
     }
 
-    query = query.order('created_at', { ascending: false }); // Default sort order
+    query = query.order('created_at', { ascending: false }); 
 
     const { data, error: dbError } = await query;
 
     if (dbError) {
-      console.error('Supabase error occurred while fetching resources. Full error object:', dbError);
+      console.error('Error fetching resources. Message:', dbError.message, 'Details:', dbError.details, 'Hint:', dbError.hint, 'Code:', dbError.code);
       let detailedErrorMessage = `Failed to load resources. Supabase error: "${dbError.message || 'No specific message provided by Supabase'}".`;
       if (dbError.code) detailedErrorMessage += ` (Code: ${dbError.code})`;
       if (dbError.details) detailedErrorMessage += ` Details: ${dbError.details}.`;
@@ -98,15 +98,26 @@ export function ResourceDisplayPage() {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) { // Only fetch if authenticated
-        fetchResources(); // Initial fetch without filters
+    let redirectTimer: NodeJS.Timeout;
+    if (!authLoading) {
+      if (isAuthenticated) {
+        fetchResources(); 
         fetchFilterOptions();
-    } else if (!authLoading && !isAuthenticated) {
-        setIsLoading(false); // Not authenticated, stop loading
-        setResources([]); // Clear resources
-        setError("Please log in to view resources.");
+      } else {
+        setIsLoading(false); 
+        setResources([]); 
+        setError("Please log in to view resources. Redirecting to login...");
+        redirectTimer = setTimeout(() => {
+          router.push('/login');
+        }, 4000); // Redirect after 4 seconds
+      }
     }
-  }, [authLoading, isAuthenticated, fetchResources, fetchFilterOptions]);
+    return () => {
+      if (redirectTimer) {
+        clearTimeout(redirectTimer);
+      }
+    };
+  }, [authLoading, isAuthenticated, fetchResources, fetchFilterOptions, router]);
 
 
   const handleApplyFilters = () => {
@@ -123,7 +134,7 @@ export function ResourceDisplayPage() {
     setSelectedYear('');
     setSelectedType('');
     setSelectedCourse('');
-    fetchResources(); // Fetch all resources
+    fetchResources(); 
   };
 
   const handleResourceDeleted = (resourceId: string) => {
@@ -131,7 +142,7 @@ export function ResourceDisplayPage() {
     toast({ title: "Resource Deleted", description: "The resource has been successfully removed." });
   };
 
-  if (authLoading || (isLoading && isAuthenticated)) { // Show loading if auth is loading or if authenticated and resources are loading
+  if (authLoading || (isLoading && isAuthenticated)) { 
     return (
       <div className="container mx-auto py-2 text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto my-8" />
@@ -147,7 +158,7 @@ export function ResourceDisplayPage() {
           <Search className="h-4 w-4" />
           <AlertTitle className="font-headline">Access Denied</AlertTitle>
           <AlertDescription>
-            You need to be logged in to view university resources. Please log in or register.
+            {error || "You need to be logged in to view university resources. Redirecting to login..."}
           </AlertDescription>
         </Alert>
       </div>
@@ -164,7 +175,7 @@ export function ResourceDisplayPage() {
         </Button>
       </div>
       
-      {error && (
+      {error && !resources.length && ( // Only show this main error if there are no resources AND an error exists
         <Alert variant="destructive" className="mb-6 whitespace-pre-wrap">
           <AlertTitle className="font-headline">Error Loading Resources</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
@@ -220,3 +231,4 @@ export function ResourceDisplayPage() {
     </div>
   );
 }
+
