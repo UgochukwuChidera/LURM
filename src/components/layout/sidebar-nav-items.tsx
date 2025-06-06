@@ -3,22 +3,22 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
-import { LayoutGrid, UserCircle, MessageSquare, Search } from 'lucide-react'; // Changed Home to LayoutGrid, Search to Library
+import { Search, UserCircle, MessageSquare, UploadCloud } from 'lucide-react'; 
 import { useAuth } from '@/contexts/auth-context';
 
 const navItems = [
   { href: '/resources', label: 'Resources', icon: Search, authRequired: false }, 
   { href: '/profile', label: 'Profile', icon: UserCircle, authRequired: true },
   { href: '/chatbot', label: 'Chatbot Assistant', icon: MessageSquare, authRequired: false },
+  { href: '/admin/upload-resource', label: 'Upload Resource', icon: UploadCloud, authRequired: true, adminOnly: true },
 ];
 
 export function SidebarNavItems() {
   const pathname = usePathname();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   const isActive = (href: string) => {
-    // For root path, check exact match. For others, check startsWith.
-    if (href === '/resources') return pathname === href || pathname.startsWith(href + '/'); // Handle /resources and /resources/anything
+    if (href === '/resources') return pathname === href || pathname.startsWith(href + '/');
     if (href === '/') return pathname === href;
     return pathname.startsWith(href);
   };
@@ -27,6 +27,9 @@ export function SidebarNavItems() {
     <SidebarMenu>
       {navItems.map((item) => {
         if (item.authRequired && !isAuthenticated) {
+          return null;
+        }
+        if (item.adminOnly && (!user || !user.isAdmin)) {
           return null;
         }
         return (

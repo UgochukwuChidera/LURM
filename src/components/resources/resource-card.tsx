@@ -26,6 +26,7 @@ const typeIcons: Record<Resource['type'], React.ElementType> = {
   'Video Lecture': Video,
 };
 
+const SUPABASE_STORAGE_BUCKET_NAME = 'resource-media'; // Define your bucket name
 
 export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCardProps) {
   const TypeIcon = typeIcons[resource.type] || Database;
@@ -34,24 +35,67 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
 
   const handleDelete = async () => {
     setIsDeleting(true);
-    // Note: This only deletes the database record.
-    // Deleting associated files from Supabase Storage would require additional logic
-    // if imageUrl points to a file in Storage and not an external URL.
-    const { error } = await supabase
+
+    // 1. Attempt to delete from Storage if imageUrl seems like a Supabase storage URL
+    let storageErrorOccurred = false;
+    if (resource.imageUrl && resource.imageUrl.includes(process.env.NEXT_PUBLIC_SUPABASE_URL!)) {
+        try {
+            // Extract the path from the full URL.
+            // Example URL: https://<project-id>.supabase.co/storage/v1/object/public/resource-media/image.png
+            // Path would be: resource-media/image.png (or just image.png if bucket is part of path extraction)
+            // A more robust way is to store the path separately if you control uploads.
+            // This is a basic heuristic:
+            const urlParts = new URL(resource.imageUrl);
+            // Pathname typically starts with /storage/v1/object/public/<bucket_name>/<file_path>
+            // We need to extract <file_path> including any folders within the bucket
+            const pathSegments = urlParts.pathname.split('/');
+            const bucketIndex = pathSegments.findIndex(segment => segment === SUPABASE_STORAGE_BUCKET_NAME);
+            if (bucketIndex !== -1 && bucketIndex + 1 < pathSegments.length) {
+                const filePath = pathSegments.slice(bucketIndex + 1).join('/');
+                if (filePath) {
+                    const { error: storageError } = await supabase
+                        .storage
+                        .from(SUPABASE_STORAGE_BUCKET_NAME)
+                        .remove([filePath]);
+                    if (storageError) {
+                        console.error("Error deleting from storage:", storageError);
+                        toast({
+                            title: 'Storage Deletion Issue',
+                            description: `Could not delete image file: ${storageError.message}. The database record might still be deleted.`,
+                            variant: 'destructive',
+                        });
+                        storageErrorOccurred = true; // Proceed to delete DB record even if storage fails, but notify user
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Error parsing imageUrl for storage deletion:", e);
+            // Don't block DB deletion for this error
+        }
+    }
+
+    // 2. Delete from the database
+    const { error: dbError } = await supabase
       .from('resources')
       .delete()
       .eq('id', resource.id);
 
     setIsDeleting(false);
-    if (error) {
+    if (dbError) {
       toast({
         title: 'Deletion Failed',
-        description: `Could not delete resource: ${error.message}`,
+        description: `Could not delete resource record: ${dbError.message}`,
         variant: 'destructive',
       });
-      console.error("Error deleting resource:", error);
+      console.error("Error deleting resource from DB:", dbError);
     } else {
-      onDeleteSuccess(resource.id); // Callback to parent to update UI
+      if (!storageErrorOccurred) { // Only show full success if storage was also fine or not applicable
+        toast({
+          title: 'Resource Deleted',
+          description: `"${resource.name}" has been removed.`,
+        });
+      }
+      onDeleteSuccess(resource.id); 
     }
   };
 
@@ -60,12 +104,12 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
       <CardHeader className="p-4">
         <div className="aspect-[3/2] relative w-full mb-3">
           <Image
-            src={resource.imageUrl || 'https://placehold.co/600x400.png'} // Fallback if imageUrl is empty
+            src={resource.imageUrl || 'https://placehold.co/600x400.png'}
             alt={resource.name}
             layout="fill"
             objectFit="cover"
             className="bg-muted"
-            data-ai-hint={resource.dataAiHint}
+            data-ai-hint={resource.dataAiHint || resource.type.toLowerCase()}
           />
         </div>
         <CardTitle className="font-headline text-lg">{resource.name}</CardTitle>
@@ -95,7 +139,7 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
                 <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This action cannot be undone. This will permanently delete the resource
-                  &quot;{resource.name}&quot;.
+                  &quot;{resource.name}&quot; and its associated image file if stored in Supabase Storage.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
