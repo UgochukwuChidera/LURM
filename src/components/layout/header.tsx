@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { School, UserCircle } from 'lucide-react';
+import { School } from 'lucide-react'; // Removed UserCircle
 import { useAuth } from '@/contexts/auth-context';
 import { usePathname } from 'next/navigation';
 
 export function Header() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth(); // Removed user from useAuth as it's not used here anymore
   const pathname = usePathname();
 
   // Determine if the current page is the landing page
@@ -24,15 +24,7 @@ export function Header() {
         </Link>
       </div>
       <div className="flex items-center gap-2">
-        {/* Login/Register buttons removed, now on landing page */}
-        {isAuthenticated && !isLandingPage && (
-           <Button variant="ghost" size="icon" asChild>
-            <Link href="/profile">
-              <UserCircle className="h-6 w-6" />
-              <span className="sr-only">Profile</span>
-            </Link>
-          </Button>
-        )}
+        {/* Profile button removed from here. Users can access profile via sidebar. */}
       </div>
     </header>
   );
