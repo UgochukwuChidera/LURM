@@ -12,7 +12,7 @@ interface User { // App-specific User interface
   email?: string;
   name?: string;
   avatarUrl?: string;
-  isAdmin?: boolean; // Added isAdmin
+  isAdmin?: boolean;
 }
 
 interface AuthContextType {
@@ -39,24 +39,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (storedUserString) {
       try {
         const storedUser = JSON.parse(storedUserString);
-         // Check if stored user has isAdmin, if not, it's an older version or not fetched yet.
         if (typeof storedUser.isAdmin !== 'undefined') {
-          setUser(storedUser); // Set user if found in localStorage
+          setUser(storedUser);
         }
       } catch (e) {
         console.error("Failed to parse user from localStorage", e);
         localStorage.removeItem('lurmUser');
       }
     }
-    // setIsLoading(true) is not needed here as it's already true by default.
-    // setIsLoading(false) will be called by the onAuthStateChange listener.
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         const supabaseUser = session?.user;
         if (supabaseUser) {
           let isAdmin = false;
-          // Attempt to get admin status from existing user state first if available (e.g., from localStorage)
+          // Attempt to get admin status from existing user state first if available
           if (user && user.id === supabaseUser.id && typeof user.isAdmin !== 'undefined') {
             isAdmin = user.isAdmin;
           } else {
@@ -67,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               .eq('id', supabaseUser.id)
               .single();
 
-            if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
+            if (profileError && profileError.code !== 'PGRST116') { 
               console.error('Error fetching profile for admin status:', profileError.message);
             } else if (profile) {
               isAdmin = profile.is_admin || false;
@@ -87,24 +84,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           localStorage.removeItem('lurmUser');
         }
-        setIsLoading(false); // Set loading to false after auth state is determined
+        setIsLoading(false); 
       }
     );
 
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, []); // Empty dependency array ensures this runs once on mount (client-side)
+  // user dependency removed to avoid re-running profile fetch unnecessarily on user object change if not related to session
+  // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, []); 
 
   const login = async (email: string, password: string): Promise<{ error: AuthError | null }> => {
-    setIsLoading(true);
+    // setIsLoading(true); // Removed
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setIsLoading(false);
+    // if (error) setIsLoading(false); // Removed
     return { error };
   };
 
   const register = async (email: string, password: string, name: string): Promise<{ error: AuthError | null }> => {
-    setIsLoading(true);
+    // setIsLoading(true); // Removed
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -115,21 +114,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
       },
     });
-    if (error) setIsLoading(false);
+    // if (error) setIsLoading(false); // Removed
     return { error };
   };
 
   const logout = async () => {
-    setIsLoading(true);
+    // setIsLoading(true); // Removed - logout should be quick, onAuthStateChange will handle UI update
     await supabase.auth.signOut();
     setUser(null);
     localStorage.removeItem('lurmUser');
-    setIsLoading(false);
+    // setIsLoading(false); // Removed - onAuthStateChange handles this
   };
 
   const updateUserMetadata = async (metadata: { name?: string; avatarUrl?: string }): Promise<{ error: AuthError | null }> => {
     if (!user) return { error: { name: "AuthError", message: "User not authenticated" } as AuthError };
-    setIsLoading(true);
+    // setIsLoading(true); // Removed
+    
     const updateData: { name?: string; avatar_url?: string } = {};
     if (metadata.name) updateData.name = metadata.name;
     if (metadata.avatarUrl) updateData.avatar_url = metadata.avatarUrl;
@@ -137,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { data: updatedAuthUser, error: authUpdateError } = await supabase.auth.updateUser({ data: updateData });
 
     if (authUpdateError) {
-        setIsLoading(false);
+        // setIsLoading(false); // Removed
         return { error: authUpdateError };
     }
 
@@ -153,12 +153,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         if (profileUpdateError) {
             console.error("Error updating profile table:", profileUpdateError);
+            // Potentially return this error too, or handle it differently
         }
     }
 
     if (updatedAuthUser?.user) {
+      // Re-fetch profile or optimistically update? For now, rely on onAuthStateChange or a manual refresh if needed.
+      // For simplicity, let's optimistically update the local user state based on the successful auth update.
+      // The onAuthStateChange might eventually bring the isAdmin status if it changes, but that's less direct.
       const updatedAppUser: User = {
-        ...user,
+        ...user, // Preserve existing fields like isAdmin
         id: updatedAuthUser.user.id,
         email: updatedAuthUser.user.email,
         name: updatedAuthUser.user.user_metadata?.name as string || user.name,
@@ -167,20 +171,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(updatedAppUser);
       localStorage.setItem('lurmUser', JSON.stringify(updatedAppUser));
     }
-    setIsLoading(false);
+    // setIsLoading(false); // Removed
     return { error: null };
   };
   
   const updatePassword = async (newPassword: string): Promise<{ error: AuthError | null }> => {
     if (!user) return { error: { name: "AuthError", message: "User not authenticated" } as AuthError };
-    setIsLoading(true);
+    // setIsLoading(true); // Removed
     const { error } = await supabase.auth.updateUser({ password: newPassword });
-    setIsLoading(false);
+    // setIsLoading(false); // Removed
     return { error };
   };
 
-  // Display a loading indicator while authentication status is being determined.
-  // This check now correctly avoids localStorage access on the server.
   if (isLoading) {
      return <div className="flex h-screen items-center justify-center"><p>Loading application...</p></div>;
   }
@@ -199,3 +201,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
