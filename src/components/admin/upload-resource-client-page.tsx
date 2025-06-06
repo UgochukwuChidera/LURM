@@ -17,7 +17,7 @@ import { Loader2, UploadCloud, ArrowLeft, FileUp } from 'lucide-react';
 import Link from 'next/link';
 
 const RESOURCE_TYPES: Resource['type'][] = ['Lecture Notes', 'Textbook', 'Research Paper', 'Lab Equipment', 'Software License', 'Video Lecture', 'PDF Document', 'Other'];
-const FILE_STORAGE_BUCKET = 'resource-files'; // Ensure this bucket exists in your Supabase project
+const FILE_STORAGE_BUCKET = 'resource-files'; 
 
 export function UploadResourceClientPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -75,8 +75,6 @@ export function UploadResourceClientPage() {
     let uploadedFileSizeBytes: number | undefined = undefined;
 
     if (file) {
-      // Using a path structure: <bucket>/resource-files/<resource_id>/<filename>
-      // Ensure your RLS policies for the 'resource-files' bucket allow admin uploads.
       const filePath = `public/${resourceId}/${file.name}`; 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(FILE_STORAGE_BUCKET)
@@ -97,7 +95,7 @@ export function UploadResourceClientPage() {
       
       uploadedFileUrl = publicUrlData.publicUrl;
       uploadedFileName = file.name;
-      uploadedFileMimeType = file.type; // file.type usually gives the MIME type
+      uploadedFileMimeType = file.type; 
       uploadedFileSizeBytes = file.size;
     }
 
@@ -122,7 +120,15 @@ export function UploadResourceClientPage() {
 
     setIsSubmitting(false);
     if (dbError) {
-      toast({ title: 'Resource Creation Failed', description: `Database error: ${dbError.message} (Code: ${dbError.code}) Details: ${dbError.details} Hint: ${dbError.hint}. This might be a schema cache issue. Please try reloading the schema in your Supabase dashboard (Project Settings > API > Reload Schema).`, variant: 'destructive', duration: 15000 });
+      let errorDescription = `Database error: ${dbError.message}`;
+      if (dbError.code === 'PGRST204') {
+        const match = dbError.message.match(/Could not find the '([^']+)' column/);
+        const columnName = match ? match[1] : 'a specific';
+        errorDescription = `Database schema mismatch (Code: PGRST204): Could not find the '${columnName}' column. Please ensure your 'resources' table schema is correct in the Supabase database AND reload the schema cache in Supabase Dashboard (Project Settings > API > Reload Schema). Details: ${dbError.details || 'N/A'}. Hint: ${dbError.hint || 'N/A'}`;
+      } else {
+        errorDescription = `Database error: ${dbError.message} (Code: ${dbError.code}) Details: ${dbError.details || 'N/A'} Hint: ${dbError.hint || 'N/A'}.`;
+      }
+      toast({ title: 'Resource Creation Failed', description: errorDescription, variant: 'destructive', duration: 20000 });
       console.error("Error inserting resource:", dbError);
     } else {
       toast({ title: 'Resource Uploaded!', description: `"${name}" has been added.` });
@@ -223,5 +229,6 @@ export function UploadResourceClientPage() {
     </div>
   );
 }
+    
 
     
