@@ -52,7 +52,7 @@ export function AuthForm({ mode }: AuthFormProps) {
           description: "A confirmation link has been sent to your email. Please check your inbox (and spam folder) to activate your account.",
           duration: 10000 // Longer duration for this important message
         });
-        router.push('/resources'); 
+        router.push('/login'); 
       }
     }
     setIsSubmitting(false);
