@@ -13,13 +13,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 
 export function ProfileClientPage() {
-  const { user, isAuthenticated, isLoading: authLoading, logout, updateUserMetadata, updatePassword } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout, updateUserMetadata } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [avatarUrlInput, setAvatarUrlInput] = useState('');
-  
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
@@ -40,11 +37,8 @@ export function ProfileClientPage() {
     if (!user) return;
     setIsSubmitting(true);
 
-    let hasError = false;
     let metadataAttempted = false;
     let metadataUpdated = false;
-    let passwordAttempted = false;
-    let passwordUpdated = false;
 
     const metadataUpdates: { name?: string; avatarUrl?: string } = {};
     if (name !== (user.name || '')) {
@@ -61,40 +55,17 @@ export function ProfileClientPage() {
       const { error } = await updateUserMetadata(metadataUpdates);
       if (error) {
         toast({ title: 'Profile Update Failed', description: `Could not update profile: ${error.message}`, variant: 'destructive' });
-        hasError = true;
       } else {
         metadataUpdated = true;
       }
     }
-
-    if (newPassword) {
-      passwordAttempted = true;
-      if (newPassword !== confirmPassword) {
-        toast({ title: 'Password Mismatch', description: 'New passwords do not match.', variant: 'destructive' });
-        hasError = true;
-      } else {
-        const { error: pwdError } = await updatePassword(newPassword);
-        if (pwdError) {
-          toast({ title: 'Password Update Failed', description: pwdError.message, variant: 'destructive' });
-          hasError = true;
-        } else {
-          setNewPassword('');
-          setConfirmPassword('');
-          passwordUpdated = true;
-        }
-      }
-    }
     
-    if (!hasError) {
-      if (metadataUpdated && passwordUpdated) {
-        toast({ title: 'Profile & Password Updated', description: 'Your details and new password have been saved.' });
-      } else if (metadataUpdated) {
-        toast({ title: 'Profile Updated', description: 'Your name and/or avatar have been saved.' });
-      } else if (passwordUpdated) {
-        toast({ title: 'Password Changed', description: 'Your password has been successfully updated.' });
-      } else if (!metadataAttempted && !passwordAttempted) {
-        toast({ title: 'No Changes Detected', description: 'Your profile information remains the same.', variant: 'default' });
-      }
+    if (metadataUpdated) {
+      toast({ title: 'Profile Updated', description: 'Your name and/or avatar have been saved.' });
+    } else if (metadataAttempted) {
+      // Error already shown or no actual update was needed but changes were present in form
+    } else {
+      toast({ title: 'No Changes Detected', description: 'Your profile information remains the same.', variant: 'default' });
     }
     setIsSubmitting(false);
   };
@@ -154,11 +125,6 @@ export function ProfileClientPage() {
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input id="email" type="email" value={email} disabled placeholder="your.email@landmark.edu" />
-            </div>
-             <div className="space-y-2">
-              <Label htmlFor="newPassword">Change Password (optional)</Label>
-              <Input id="newPassword" type="password" placeholder="New Password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={isSubmitting} />
-              <Input id="confirmPassword" type="password" placeholder="Confirm New Password" className="mt-2" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} disabled={isSubmitting}/>
             </div>
           </CardContent>
           <CardFooter className="flex justify-between">
