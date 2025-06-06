@@ -3,7 +3,7 @@
 import type { Resource } from '@/lib/mock-data';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button'; // Added buttonVariants import
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { FileText, BookOpen, FlaskConical, MonitorPlay, Video, FileQuestion, Download, Trash2, Loader2, FileArchive, Image as ImageIcon, FileCode, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
@@ -18,7 +18,7 @@ interface ResourceCardProps {
   onDeleteSuccess: (resourceId: string) => void;
 }
 
-const typeIcons: Record<string, React.ElementType> = { // Allow any string for resource.type initially
+const typeIcons: Record<string, React.ElementType> = {
   'Lecture Notes': FileText,
   'Textbook': BookOpen,
   'Research Paper': FileText,
@@ -46,7 +46,7 @@ const getDisplayIcon = (resource: Resource): React.ElementType => {
     if (mimeType.startsWith('image/')) return ImageIcon;
     if (mimeType === 'application/pdf') return FileText;
     if (mimeType.startsWith('video/')) return Video;
-    if (mimeType.startsWith('audio/')) return MonitorPlay; // Example for audio
+    if (mimeType.startsWith('audio/')) return MonitorPlay; 
     if (mimeType.startsWith('application/zip') || mimeType.startsWith('application/x-rar-compressed') || mimeType.startsWith('application/x-7z-compressed') || mimeType.startsWith('application/gzip')) return FileArchive;
     if (mimeType.startsWith('text/html') || mimeType.startsWith('application/xml') || mimeType.startsWith('application/json')) return FileCode;
     if (mimeType.startsWith('text/csv') || mimeType.startsWith('application/vnd.ms-excel') || mimeType.startsWith('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) return FileSpreadsheet;
@@ -67,52 +67,73 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
     let storageErrorOccurred = false;
     let storageErrorMessage = '';
 
+    console.log(`Resource Card: Initiating delete for resource ID: ${resource.id}, Name: "${resource.name}"`);
+
     if (resource.file_url && resource.file_name) {
       console.log(`Resource Card: Attempting to delete associated file. URL: ${resource.file_url}, Bucket: ${FILE_STORAGE_BUCKET}`);
       try {
         const urlObject = new URL(resource.file_url);
+        // Correctly extract path for Supabase storage: public/<bucket-name>/<actual-file-path>
+        // The path stored in file_url is often the full public URL.
+        // We need the path *within* the bucket.
+        // Example: https://<project_ref>.supabase.co/storage/v1/object/public/resource-files/some/path/file.pdf
+        // We need: some/path/file.pdf
         const pathSegments = urlObject.pathname.split('/');
         const bucketNameIndex = pathSegments.indexOf(FILE_STORAGE_BUCKET);
         
         let filePathForStorage = '';
         if (bucketNameIndex !== -1 && bucketNameIndex < pathSegments.length -1 ) {
+            // The actual path starts after the bucket name segment
             filePathForStorage = pathSegments.slice(bucketNameIndex + 1).join('/');
+        } else {
+             // Fallback or attempt to derive from a simpler structure if URL is different
+             // This part might need adjustment based on the exact URL format Supabase gives you
+             // For instance, if the file_url is already just the path after bucket, this logic changes
+             console.warn(`Resource Card: Could not find bucket '${FILE_STORAGE_BUCKET}' segment in URL path: ${urlObject.pathname}. Attempting to use last part of path as filename if it matches resource.file_name.`);
+             // A common pattern is that file_url points to public/bucket_name/file_path
+             // The remove function expects the file_path part.
+             // If resource.id is part of the path, e.g., <resource.id>/<file_name>
+             // filePathForStorage = `${resource.id}/${resource.file_name}`; // Adjust if your storage structure is different
         }
+
 
         if (filePathForStorage) {
             console.log(`Resource Card: Extracted file path for storage deletion: '${filePathForStorage}'`);
             const { error: storageError } = await supabase
             .storage
-            .from(FILE_STORAGE_BUCKET)
+            .from(FILE_STORAGE_BUCKET) // Ensure this constant matches your actual bucket name
             .remove([filePathForStorage]);
 
             if (storageError) {
-              if (storageError.message === "The resource was not found") {
-                console.warn(`Resource Card: Storage file '${filePathForStorage}' not found during deletion (possibly already deleted).`);
-                // Not considering this a critical error for overall success message.
+              // Common error: "The resource was not found" - this is okay if file was already deleted or never existed.
+              if (storageError.message.includes("Not found") || storageError.message.includes("The resource was not found")) {
+                console.warn(`Resource Card: Storage file '${filePathForStorage}' not found during deletion (possibly already deleted or path mismatch). Message: ${storageError.message}`);
+                // Not necessarily a critical error for the toast, but good to log.
               } else {
                 console.error("Resource Card: Error deleting file from storage:", JSON.stringify(storageError, null, 2));
                 storageErrorOccurred = true;
-                storageErrorMessage = `Storage delete error: ${storageError.message}.`;
+                storageErrorMessage = `Storage delete error: ${storageError.message}. Check RLS policies on the '${FILE_STORAGE_BUCKET}' bucket.`;
               }
             } else {
                 console.log(`Resource Card: Successfully deleted '${filePathForStorage}' from storage bucket '${FILE_STORAGE_BUCKET}'.`);
                 storageFileDeleted = true;
             }
         } else {
-             console.warn("Resource Card: Could not determine valid file path for storage deletion from URL:", resource.file_url);
-             storageErrorOccurred = true; // Consider this an issue for reporting
-             storageErrorMessage = 'Could not determine file path from URL for storage deletion.';
+             console.warn(`Resource Card: Could not determine valid file path for storage deletion from URL: ${resource.file_url}. The file_name is: ${resource.file_name}. Ensure file_url is a direct Supabase Storage URL containing the bucket name '${FILE_STORAGE_BUCKET}'.`);
+             // We don't set storageErrorOccurred = true here if filePathForStorage couldn't be determined
+             // because it might mean there's no file to delete from storage, which isn't an "error" in deletion.
+             storageErrorMessage = 'Could not determine file path from URL for storage deletion. File may not be in storage or URL format is unexpected.';
         }
       } catch (e: any) {
-        console.error("Resource Card: Error parsing file_url or during storage deletion attempt:", e.message, e.stack);
-        storageErrorOccurred = true;
-        storageErrorMessage = `File URL processing error: ${e.message}.`;
+        console.error("Resource Card: Exception during storage file deletion attempt (e.g., URL parsing). Error:", e.message, e.stack);
+        storageErrorOccurred = true; // Consider this an issue
+        storageErrorMessage = `File URL processing/deletion exception: ${e.message}.`;
       }
     } else {
       console.log("Resource Card: No file_url or file_name associated with this resource, skipping storage deletion.");
     }
 
+    // Always attempt to delete the database record
     const { error: dbError } = await supabase
       .from('resources')
       .delete()
@@ -124,27 +145,26 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
       console.error("Resource Card: Error deleting resource from DB:", JSON.stringify(dbError, null, 2));
       toast({
         title: 'DB Record Deletion Failed',
-        description: `Could not delete resource record: ${dbError.message}`,
+        description: `Could not delete resource record: ${dbError.message}. Check RLS policies on 'resources' table.`,
         variant: 'destructive',
       });
-    } else {
+    } else { // DB record deleted successfully
       let toastTitle = 'Resource Deleted';
-      let toastDescription = `"${resource.name}" database record has been removed.`;
+      let toastDescription = `"${resource.name}" database record removed.`;
+      let toastVariant: "default" | "destructive" = "default";
+
       if (resource.file_url && resource.file_name) { // If there was a file to deal with
         if (storageFileDeleted) {
           toastDescription += ' Associated file also deleted from storage.';
-        } else if (storageErrorOccurred) {
+        } else if (storageErrorOccurred) { // An actual error occurred trying to delete from storage
           toastTitle = 'DB Record Deleted, Storage Issue';
           toastDescription += ` Associated file NOT deleted from storage. ${storageErrorMessage}`;
-           toast({ title: toastTitle, description: toastDescription, variant: 'default', duration: 10000 }); // Longer duration for this
-           onDeleteSuccess(resource.id);
-           return; // Exit early to avoid double toast
-        } else {
-          // File was not found or no valid path, but not a hard error
-           toastDescription += ' Associated file was not found in storage or no valid path (may have been already removed).';
+          toastVariant = "default"; // Or 'warning' if you had one
+        } else { // No storage error, but file might not have been found or path was indeterminable
+          toastDescription += ` ${storageErrorMessage || 'Associated file status in storage is undetermined (e.g., not found, path issue, or no file initially).'}`;
         }
       }
-      toast({ title: toastTitle, description: toastDescription });
+      toast({ title: toastTitle, description: toastDescription, variant: toastVariant, duration: storageErrorOccurred ? 10000 : 5000 });
       onDeleteSuccess(resource.id); 
     }
   };
@@ -163,15 +183,15 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
           </span>
         </CardDescription>
       </CardHeader>
-      <CardContent className="p-4 pt-0 flex-grow min-h-0">
-        <p className="text-sm text-foreground/80 line-clamp-3 mb-3">{resource.description}</p>
+      <CardContent className="p-4 pt-0 flex-grow min-h-0"> {/* Ensure min-h-0 for flex-grow */}
+        <p className="text-sm text-foreground/80 line-clamp-3 mb-3 h-[3.75rem] overflow-hidden">{resource.description}</p> {/* approx 3 lines */}
         {resource.file_url && resource.file_name && (
           <div className="mt-2 w-full">
             <Button variant="outline" size="sm" asChild className="font-body text-xs w-full justify-start overflow-hidden px-2 py-1 h-auto min-h-8">
               <Link href={resource.file_url} target="_blank" rel="noopener noreferrer" download={resource.file_name} title={`Download ${resource.file_name} (${formatBytes(resource.file_size_bytes)})`}>
-                <div className="flex items-center w-full min-w-0">
+                <div className="flex items-center w-full min-w-0"> {/* Added min-w-0 */}
                   <Download className="mr-2 h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-grow min-w-0" >{resource.file_name}</span>
+                  <span className="truncate flex-grow min-w-0" title={resource.file_name}>{resource.file_name}</span> {/* Added min-w-0 and title */}
                   <span className="ml-1 text-muted-foreground/80 shrink-0 text-[0.7rem] self-end whitespace-nowrap">
                     ({formatBytes(resource.file_size_bytes)})
                   </span>
@@ -185,7 +205,7 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
         <div className="flex gap-1.5 items-center overflow-hidden min-w-0 flex-grow">
             <Badge variant="secondary" className="font-normal shrink-0">{resource.year}</Badge>
             {resource.keywords && resource.keywords.length > 0 && (
-                 <Badge variant="outline" className="font-normal truncate max-w-[calc(100%-4rem)]" title={resource.keywords.join(', ')}>
+                 <Badge variant="outline" className="font-normal truncate max-w-[calc(100%-5rem)]" title={resource.keywords.join(', ')}> {/* Adjusted max-w */}
                     {resource.keywords[0]}{resource.keywords.length > 1 ? ', ...' : ''}
                 </Badge>
             )}
