@@ -17,7 +17,7 @@ import { Loader2, UploadCloud, ArrowLeft, FileUp } from 'lucide-react';
 import Link from 'next/link';
 
 const RESOURCE_TYPES: Resource['type'][] = ['Lecture Notes', 'Textbook', 'Research Paper', 'Lab Equipment', 'Software License', 'Video Lecture', 'PDF Document', 'Other'];
-const FILE_STORAGE_BUCKET = 'resource-files';
+const FILE_STORAGE_BUCKET = 'resource-files'; // Ensure this bucket exists in your Supabase project
 
 export function UploadResourceClientPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -75,12 +75,14 @@ export function UploadResourceClientPage() {
     let uploadedFileSizeBytes: number | undefined = undefined;
 
     if (file) {
-      const filePath = `public/${resourceId}/${file.name}`; // Using 'public' prefix for direct access if bucket is public
+      // Using a path structure: <bucket>/resource-files/<resource_id>/<filename>
+      // Ensure your RLS policies for the 'resource-files' bucket allow admin uploads.
+      const filePath = `public/${resourceId}/${file.name}`; 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from(FILE_STORAGE_BUCKET)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false, // Consider true if you want to allow overwriting, but usually false for new uploads
+          upsert: false,
         });
 
       if (uploadError) {
@@ -95,7 +97,7 @@ export function UploadResourceClientPage() {
       
       uploadedFileUrl = publicUrlData.publicUrl;
       uploadedFileName = file.name;
-      uploadedFileMimeType = file.type;
+      uploadedFileMimeType = file.type; // file.type usually gives the MIME type
       uploadedFileSizeBytes = file.size;
     }
 
@@ -107,23 +109,24 @@ export function UploadResourceClientPage() {
       year: Number(year),
       description,
       keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      file_url: uploadedFileUrl, // snake_case
-      file_name: uploadedFileName, // snake_case
-      file_mime_type: uploadedFileMimeType, // snake_case
-      file_size_bytes: uploadedFileSizeBytes, // snake_case
+      file_url: uploadedFileUrl,
+      file_name: uploadedFileName,
+      file_mime_type: uploadedFileMimeType,
+      file_size_bytes: uploadedFileSizeBytes,
       uploader_id: user.id,
     };
+
+    console.log("Attempting to insert resource data:", JSON.stringify(newResourceData, null, 2));
     
     const { error: dbError } = await supabase.from('resources').insert(newResourceData);
 
     setIsSubmitting(false);
     if (dbError) {
-      toast({ title: 'Resource Creation Failed', description: `Database error: ${dbError.message} (Code: ${dbError.code}) Details: ${dbError.details} Hint: ${dbError.hint}. Please ensure your database schema is up to date and try reloading the schema cache in Supabase.`, variant: 'destructive', duration: 10000 });
+      toast({ title: 'Resource Creation Failed', description: `Database error: ${dbError.message} (Code: ${dbError.code}) Details: ${dbError.details} Hint: ${dbError.hint}. This might be a schema cache issue. Please try reloading the schema in your Supabase dashboard (Project Settings > API > Reload Schema).`, variant: 'destructive', duration: 15000 });
       console.error("Error inserting resource:", dbError);
     } else {
       toast({ title: 'Resource Uploaded!', description: `"${name}" has been added.` });
       router.push('/resources');
-      // Reset form might be good here
       setName('');
       setType('Other');
       setCourse('');
@@ -131,7 +134,7 @@ export function UploadResourceClientPage() {
       setDescription('');
       setKeywords('');
       setFile(null);
-      if (document.getElementById('file')) { // Reset file input
+      if (document.getElementById('file')) { 
         (document.getElementById('file') as HTMLInputElement).value = "";
       }
     }
@@ -220,3 +223,5 @@ export function UploadResourceClientPage() {
     </div>
   );
 }
+
+    
