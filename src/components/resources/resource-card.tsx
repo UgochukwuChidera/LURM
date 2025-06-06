@@ -1,15 +1,15 @@
 
 "use client";
 import type { Resource } from '@/lib/mock-data';
-import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { FileText, BookOpen, FlaskConical, MonitorPlay, Video, Database, Trash2, Loader2 } from 'lucide-react';
+import { FileText, BookOpen, FlaskConical, MonitorPlay, Video, FileQuestion, Download, Trash2, Loader2, FileArchive, Image as ImageIcon } from 'lucide-react'; // Added FileArchive, ImageIcon
 import { supabase } from '@/lib/supabaseClient';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import Link from 'next/link';
 
 interface ResourceCardProps {
   resource: Resource;
@@ -24,54 +24,74 @@ const typeIcons: Record<Resource['type'], React.ElementType> = {
   'Lab Equipment': FlaskConical,
   'Software License': MonitorPlay,
   'Video Lecture': Video,
+  'Other': FileQuestion,
 };
 
-const SUPABASE_STORAGE_BUCKET_NAME = 'resource-media'; // Define your bucket name
+const FILE_STORAGE_BUCKET = 'resource-files'; // Ensure this matches your bucket name
+
+// Helper to format file size
+const formatBytes = (bytes: number, decimals = 2) => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+};
+
+// Heuristic to get a generic file type icon if a more specific one isn't available
+const getGenericFileIcon = (mimeType?: string): React.ElementType => {
+  if (!mimeType) return FileQuestion;
+  if (mimeType.startsWith('image/')) return ImageIcon;
+  if (mimeType === 'application/pdf') return FileText;
+  if (mimeType.startsWith('video/')) return Video;
+  if (mimeType.startsWith('application/zip') || mimeType.startsWith('application/x-rar-compressed')) return FileArchive;
+  return FileQuestion; // Default
+};
+
 
 export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCardProps) {
-  const TypeIcon = typeIcons[resource.type] || Database;
+  const SpecificTypeIcon = typeIcons[resource.type] || FileQuestion;
+  const DisplayIcon = resource.fileUrl ? getGenericFileIcon(resource.fileMimeType) : SpecificTypeIcon;
+  
   const { toast } = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async () => {
     setIsDeleting(true);
-
-    // 1. Attempt to delete from Storage if imageUrl seems like a Supabase storage URL
     let storageErrorOccurred = false;
-    if (resource.imageUrl && resource.imageUrl.includes(process.env.NEXT_PUBLIC_SUPABASE_URL!)) {
-        try {
-            // Extract the path from the full URL.
-            // Example URL: https://<project-id>.supabase.co/storage/v1/object/public/resource-media/image.png
-            // Path would be: resource-media/image.png (or just image.png if bucket is part of path extraction)
-            // A more robust way is to store the path separately if you control uploads.
-            // This is a basic heuristic:
-            const urlParts = new URL(resource.imageUrl);
-            // Pathname typically starts with /storage/v1/object/public/<bucket_name>/<file_path>
-            // We need to extract <file_path> including any folders within the bucket
-            const pathSegments = urlParts.pathname.split('/');
-            const bucketIndex = pathSegments.findIndex(segment => segment === SUPABASE_STORAGE_BUCKET_NAME);
-            if (bucketIndex !== -1 && bucketIndex + 1 < pathSegments.length) {
-                const filePath = pathSegments.slice(bucketIndex + 1).join('/');
-                if (filePath) {
-                    const { error: storageError } = await supabase
-                        .storage
-                        .from(SUPABASE_STORAGE_BUCKET_NAME)
-                        .remove([filePath]);
-                    if (storageError) {
-                        console.error("Error deleting from storage:", storageError);
-                        toast({
-                            title: 'Storage Deletion Issue',
-                            description: `Could not delete image file: ${storageError.message}. The database record might still be deleted.`,
-                            variant: 'destructive',
-                        });
-                        storageErrorOccurred = true; // Proceed to delete DB record even if storage fails, but notify user
-                    }
-                }
+
+    // 1. Attempt to delete from Storage if fileUrl exists
+    if (resource.fileUrl && resource.fileName) {
+      try {
+        // Path needs to be relative to the bucket root.
+        // If fileUrl is like https://<project>.supabase.co/storage/v1/object/public/resource-files/public/<resource_id>/<filename>
+        // The path for deletion is 'public/<resource_id>/<filename>'
+        const urlObject = new URL(resource.fileUrl);
+        const pathSegments = urlObject.pathname.split('/');
+        const bucketIndex = pathSegments.findIndex(segment => segment === FILE_STORAGE_BUCKET);
+        
+        if (bucketIndex !== -1 && bucketIndex + 1 < pathSegments.length) {
+          const filePath = pathSegments.slice(bucketIndex + 1).join('/');
+          if (filePath) {
+            const { error: storageError } = await supabase
+              .storage
+              .from(FILE_STORAGE_BUCKET)
+              .remove([filePath]);
+            if (storageError) {
+              console.error("Error deleting file from storage:", storageError);
+              toast({
+                title: 'Storage Deletion Issue',
+                description: `Could not delete file: ${storageError.message}. The database record might still be deleted.`,
+                variant: 'destructive',
+              });
+              storageErrorOccurred = true;
             }
-        } catch (e) {
-            console.error("Error parsing imageUrl for storage deletion:", e);
-            // Don't block DB deletion for this error
+          }
         }
+      } catch (e) {
+        console.error("Error parsing fileUrl for storage deletion:", e);
+      }
     }
 
     // 2. Delete from the database
@@ -89,7 +109,7 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
       });
       console.error("Error deleting resource from DB:", dbError);
     } else {
-      if (!storageErrorOccurred) { // Only show full success if storage was also fine or not applicable
+      if (!storageErrorOccurred) {
         toast({
           title: 'Resource Deleted',
           description: `"${resource.name}" has been removed.`,
@@ -102,29 +122,37 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
   return (
     <Card className="flex flex-col h-full shadow-md hover:shadow-lg transition-shadow duration-300">
       <CardHeader className="p-4">
-        <div className="aspect-[3/2] relative w-full mb-3">
-          <Image
-            src={resource.imageUrl || 'https://placehold.co/600x400.png'}
-            alt={resource.name}
-            layout="fill"
-            objectFit="cover"
-            className="bg-muted"
-            data-ai-hint={resource.dataAiHint || resource.type.toLowerCase()}
-          />
+        <div className="flex items-center justify-center h-32 w-full bg-muted mb-3">
+          <DisplayIcon className="w-16 h-16 text-primary" />
         </div>
         <CardTitle className="font-headline text-lg">{resource.name}</CardTitle>
         <CardDescription className="flex items-center text-xs text-muted-foreground">
-          <TypeIcon className="w-4 h-4 mr-1.5 shrink-0" />
+          <SpecificTypeIcon className="w-4 h-4 mr-1.5 shrink-0" />
           {resource.type} - {resource.course}
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 pt-0 flex-grow">
         <p className="text-sm text-foreground/80 line-clamp-3">{resource.description}</p>
+        {resource.fileUrl && resource.fileName && (
+          <div className="mt-3">
+            <Button variant="outline" size="sm" asChild className="font-body text-xs">
+              <Link href={resource.fileUrl} target="_blank" rel="noopener noreferrer">
+                <Download className="mr-2 h-3 w-3" />
+                Download {resource.fileName}
+                {resource.fileSizeBytes && ` (${formatBytes(resource.fileSizeBytes)})`}
+              </Link>
+            </Button>
+          </div>
+        )}
       </CardContent>
       <CardFooter className="p-4 pt-0 flex flex-wrap gap-2 items-center justify-between text-xs">
         <div className="flex gap-2 items-center">
             <Badge variant="secondary" className="font-normal">{resource.year}</Badge>
-            {resource.size && <Badge variant="outline" className="font-normal">{resource.size}</Badge>}
+            {resource.keywords && resource.keywords.length > 0 && (
+                 <Badge variant="outline" className="font-normal truncate max-w-[100px] md:max-w-[150px]" title={resource.keywords.join(', ')}>
+                    {resource.keywords.slice(0,2).join(', ')}{resource.keywords.length > 2 ? '...' : ''}
+                </Badge>
+            )}
         </div>
         {isAdmin && (
            <AlertDialog>
@@ -139,7 +167,7 @@ export function ResourceCard({ resource, isAdmin, onDeleteSuccess }: ResourceCar
                 <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This action cannot be undone. This will permanently delete the resource
-                  &quot;{resource.name}&quot; and its associated image file if stored in Supabase Storage.
+                  &quot;{resource.name}&quot; and its associated file from storage.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
