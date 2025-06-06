@@ -34,7 +34,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         toast({ title: 'Login Failed', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'Login Successful', description: 'Welcome back!' });
-        router.push('/');
+        router.push('/resources'); // Redirect to resources page
       }
     } else { // register mode
       if (!name.trim()) {
@@ -47,7 +47,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         toast({ title: 'Registration Failed', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'Registration Successful', description: `Welcome, ${name}! Please check your email to confirm your account if required.` });
-        router.push('/'); // Or to a verification pending page
+        router.push('/resources'); // Redirect to resources page
       }
     }
     setIsSubmitting(false);
@@ -113,6 +113,11 @@ export function AuthForm({ mode }: AuthFormProps) {
           </>
         )}
       </div>
+       <div className="text-center text-sm mt-4">
+            <Link href="/" className="font-medium text-muted-foreground hover:text-primary hover:underline">
+              &larr; Back to Welcome Page
+            </Link>
+        </div>
     </form>
   );
 }

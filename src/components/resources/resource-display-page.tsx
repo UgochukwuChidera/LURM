@@ -1,105 +1,137 @@
 
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
-import type { Resource } from '@/lib/mock-data'; // Keep Resource interface
-import { supabase } from '@/lib/supabaseClient'; // Import Supabase client
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import type { Resource } from '@/lib/mock-data';
+import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/contexts/auth-context';
 import { ResourceCard } from './resource-card';
 import { FilterControls } from './filter-controls';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Search, Loader2 } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Search, Loader2, FilterX, SlidersHorizontal } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 export function ResourceDisplayPage() {
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
+  const [areFiltersVisible, setAreFiltersVisible] = useState(true);
+
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
+  const [availableTypes, setAvailableTypes] = useState<string[]>([]);
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
+
+  const fetchFilterOptions = useCallback(async () => {
+    // Fetch distinct years
+    const { data: yearsData, error: yearsError } = await supabase
+      .from('resources')
+      .select('year', { count: 'exact', head: false }) // Use rpc for distinct if performance is an issue
+      .order('year', { ascending: false });
+    if (yearsError) console.error("Error fetching years:", yearsError);
+    else setAvailableYears([...new Set(yearsData?.map(r => r.year) || [])].sort((a,b) => b-a));
+
+    // Fetch distinct types
+    const { data: typesData, error: typesError } = await supabase
+      .from('resources')
+      .select('type', { count: 'exact', head: false });
+    if (typesError) console.error("Error fetching types:", typesError);
+    else setAvailableTypes([...new Set(typesData?.map(r => r.type) || [])].sort());
+    
+    // Fetch distinct courses
+    const { data: coursesData, error: coursesError } = await supabase
+      .from('resources')
+      .select('course', { count: 'exact', head: false });
+    if (coursesError) console.error("Error fetching courses:", coursesError);
+    else setAvailableCourses([...new Set(coursesData?.map(r => r.course) || [])].sort());
+  }, []);
+
+
+  const fetchResources = useCallback(async (filters?: { term?: string; year?: string; type?: string; course?: string }) => {
+    setIsLoading(true);
+    setError(null);
+    
+    let query = supabase.from('resources').select('*');
+
+    if (filters?.term) {
+      // Using or for searching across multiple fields. Adjust as needed.
+      // This is a basic text search. For more advanced search, consider pg_trgm or full-text search.
+      query = query.or(`name.ilike.%${filters.term}%,description.ilike.%${filters.term}%,keywords.cs.{${filters.term}}`);
+    }
+    if (filters?.year) {
+      query = query.eq('year', parseInt(filters.year, 10));
+    }
+    if (filters?.type) {
+      query = query.eq('type', filters.type);
+    }
+    if (filters?.course) {
+      query = query.eq('course', filters.course);
+    }
+
+    query = query.order('created_at', { ascending: false }); // Default sort order
+
+    const { data, error: dbError } = await query;
+
+    if (dbError) {
+      console.error('Supabase error occurred while fetching resources. Full error object:', dbError);
+      let detailedErrorMessage = `Failed to load resources. Supabase error: "${dbError.message || 'No specific message provided by Supabase'}".`;
+      if (dbError.code) detailedErrorMessage += ` (Code: ${dbError.code})`;
+      if (dbError.details) detailedErrorMessage += ` Details: ${dbError.details}.`;
+      if (dbError.hint) detailedErrorMessage += ` Hint: ${dbError.hint}.`;
+      detailedErrorMessage += ` Common causes: 
+1. The 'resources' table might not exist or RLS policies prevent access. 
+2. Column names might not match or data types are incorrect.`;
+      
+      setError(detailedErrorMessage);
+      setResources([]);
+    } else {
+      setResources(data as Resource[]);
+    }
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
-    const fetchResources = async () => {
-      setIsLoading(true);
-      setError(null);
-      // IMPORTANT: You need to create a 'resources' table in your Supabase project
-      // with columns matching the Resource interface (id, name, type, course, year, size, description, imageUrl, keywords, dataAiHint).
-      // Ensure RLS (Row Level Security) is set up appropriately for read access.
-      const { data, error: dbError } = await supabase
-        .from('resources')
-        .select('*');
-
-      if (dbError) {
-        console.error('Supabase error occurred while fetching resources. Full error object:', dbError);
-        console.error('Error message:', dbError.message);
-        console.error('Error details:', dbError.details);
-        console.error('Error hint:', dbError.hint);
-        console.error('Error code:', dbError.code);
-
-        let detailedErrorMessage = `Failed to load resources. Supabase error: "${dbError.message || 'No specific message provided by Supabase'}".`;
-        if (dbError.code) detailedErrorMessage += ` (Code: ${dbError.code})`;
-        if (dbError.details) detailedErrorMessage += ` Details: ${dbError.details}.`;
-        if (dbError.hint) detailedErrorMessage += ` Hint: ${dbError.hint}.`;
-        detailedErrorMessage += ` Common causes: 
-1. The 'resources' table might not exist in your Supabase project. 
-2. Column names in the table might not match the application's expectations. 
-3. Row Level Security (RLS) might be enabled without a policy allowing read access. Please check your Supabase dashboard under Authentication > Policies for the 'resources' table.`;
-        
-        setError(detailedErrorMessage);
-        setResources([]);
-      } else {
-        // Assuming the data from Supabase matches the Resource[] structure.
-        // You might need to map the data if column names or types differ.
-        setResources(data as Resource[]);
-      }
-      setIsLoading(false);
-    };
-
-    fetchResources();
-  }, []);
-  
-  // These available* calculations should use the fetched resources
-  const availableYears = useMemo(() => {
-    if (!resources) return [];
-    return [...new Set(resources.map(r => r.year))].sort((a,b) => b-a);
-  }, [resources]);
-  
-  const availableTypes = useMemo(() => {
-    if (!resources) return [];
-    return [...new Set(resources.map(r => r.type))].sort();
-  }, [resources]);
-
-  const availableCourses = useMemo(() => {
-    if (!resources) return [];
-    return [...new Set(resources.map(r => r.course))].sort();
-  }, [resources]);
+    if (!authLoading && isAuthenticated) { // Only fetch if authenticated
+        fetchResources(); // Initial fetch without filters
+        fetchFilterOptions();
+    } else if (!authLoading && !isAuthenticated) {
+        setIsLoading(false); // Not authenticated, stop loading
+        setResources([]); // Clear resources
+        setError("Please log in to view resources.");
+    }
+  }, [authLoading, isAuthenticated, fetchResources, fetchFilterOptions]);
 
 
-  const filteredResources = useMemo(() => {
-    if (!resources) return [];
-    return resources.filter((resource) => {
-      const matchesSearchTerm = searchTerm
-        ? resource.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (resource.keywords && resource.keywords.some(keyword => keyword.toLowerCase().includes(searchTerm.toLowerCase()))) ||
-          resource.description.toLowerCase().includes(searchTerm.toLowerCase())
-        : true;
-      const matchesYear = selectedYear ? resource.year.toString() === selectedYear : true;
-      const matchesType = selectedType ? resource.type === selectedType : true;
-      const matchesCourse = selectedCourse ? resource.course === selectedCourse : true;
-      
-      return matchesSearchTerm && matchesYear && matchesType && matchesCourse;
+  const handleApplyFilters = () => {
+    fetchResources({
+      term: searchTerm,
+      year: selectedYear,
+      type: selectedType,
+      course: selectedCourse,
     });
-  }, [resources, searchTerm, selectedYear, selectedType, selectedCourse]);
-
-  const resetFilters = () => {
+  };
+  
+  const handleResetFiltersAndRefresh = () => {
     setSearchTerm('');
     setSelectedYear('');
     setSelectedType('');
     setSelectedCourse('');
+    fetchResources(); // Fetch all resources
   };
 
-  if (isLoading) {
+  const handleResourceDeleted = (resourceId: string) => {
+    setResources(prevResources => prevResources.filter(r => r.id !== resourceId));
+    toast({ title: "Resource Deleted", description: "The resource has been successfully removed." });
+  };
+
+  if (authLoading || (isLoading && isAuthenticated)) { // Show loading if auth is loading or if authenticated and resources are loading
     return (
       <div className="container mx-auto py-2 text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto my-8" />
@@ -108,9 +140,29 @@ export function ResourceDisplayPage() {
     );
   }
 
+  if (!isAuthenticated && !authLoading) {
+     return (
+      <div className="container mx-auto py-2">
+        <Alert variant="destructive" className="mt-8">
+          <Search className="h-4 w-4" />
+          <AlertTitle className="font-headline">Access Denied</AlertTitle>
+          <AlertDescription>
+            You need to be logged in to view university resources. Please log in or register.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto py-2">
-      <h1 className="font-headline text-3xl font-bold mb-8 text-primary">University Resources</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="font-headline text-3xl font-bold text-primary">University Resources</h1>
+        <Button variant="outline" onClick={() => setAreFiltersVisible(!areFiltersVisible)} className="font-body">
+          {areFiltersVisible ? <FilterX className="mr-2 h-4 w-4" /> : <SlidersHorizontal className="mr-2 h-4 w-4" />}
+          {areFiltersVisible ? 'Hide Filters' : 'Show Filters'}
+        </Button>
+      </div>
       
       {error && (
         <Alert variant="destructive" className="mb-6 whitespace-pre-wrap">
@@ -119,34 +171,48 @@ export function ResourceDisplayPage() {
         </Alert>
       )}
 
-      <FilterControls
-        searchTerm={searchTerm}
-        setSearchTerm={setSearchTerm}
-        selectedYear={selectedYear}
-        setSelectedYear={setSelectedYear}
-        selectedType={selectedType}
-        setSelectedType={setSelectedType}
-        selectedCourse={selectedCourse}
-        setSelectedCourse={setSelectedCourse}
-        onResetFilters={resetFilters}
-        availableYears={availableYears}
-        availableTypes={availableTypes}
-        availableCourses={availableCourses}
-      />
+      {areFiltersVisible && (
+        <FilterControls
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          selectedYear={selectedYear}
+          setSelectedYear={setSelectedYear}
+          selectedType={selectedType}
+          setSelectedType={setSelectedType}
+          selectedCourse={selectedCourse}
+          setSelectedCourse={setSelectedCourse}
+          onApplyFilters={handleApplyFilters}
+          onResetAndRefresh={handleResetFiltersAndRefresh}
+          availableYears={availableYears}
+          availableTypes={availableTypes}
+          availableCourses={availableCourses}
+          isFetching={isLoading}
+        />
+      )}
 
-      {filteredResources.length > 0 ? (
+      {isLoading ? (
+         <div className="text-center py-10">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto my-4" />
+            <p>Fetching resources based on your criteria...</p>
+         </div>
+      ) : resources.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredResources.map((resource) => (
-            <ResourceCard key={resource.id} resource={resource} />
+          {resources.map((resource) => (
+            <ResourceCard 
+                key={resource.id} 
+                resource={resource} 
+                isAdmin={user?.isAdmin || false}
+                onDeleteSuccess={handleResourceDeleted}
+            />
           ))}
         </div>
       ) : (
-        !error && ( // Only show "No Resources Found" if there isn't already an error message displayed
+        !error && ( 
           <Alert className="mt-8">
             <Search className="h-4 w-4" />
             <AlertTitle className="font-headline">No Resources Found</AlertTitle>
             <AlertDescription>
-              Try adjusting your search terms or filters. If you've recently set up the database, ensure the 'resources' table is populated.
+              Try adjusting your search terms or filters, or ensure the database is populated and RLS policies allow access.
             </AlertDescription>
           </Alert>
         )

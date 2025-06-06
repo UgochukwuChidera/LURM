@@ -16,7 +16,7 @@ export function ProfileClientPage() {
   const { user, isAuthenticated, isLoading: authLoading, logout, updateUserMetadata, updatePassword } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [avatarUrlInput, setAvatarUrlInput] = useState(''); // Changed from file to URL string
+  const [avatarUrlInput, setAvatarUrlInput] = useState('');
   
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,11 +41,18 @@ export function ProfileClientPage() {
     setIsSubmitting(true);
 
     let hasError = false;
+    let changesMade = false;
 
-    // Update name and/or avatar URL
     const metadataUpdates: { name?: string; avatarUrl?: string } = {};
-    if (name !== user.name) metadataUpdates.name = name;
-    if (avatarUrlInput !== user.avatarUrl) metadataUpdates.avatarUrl = avatarUrlInput;
+    if (name !== (user.name || '')) {
+        metadataUpdates.name = name;
+        changesMade = true;
+    }
+    if (avatarUrlInput !== (user.avatarUrl || '')) {
+        metadataUpdates.avatarUrl = avatarUrlInput;
+        changesMade = true;
+    }
+    
 
     if (Object.keys(metadataUpdates).length > 0) {
       const { error } = await updateUserMetadata(metadataUpdates);
@@ -55,8 +62,8 @@ export function ProfileClientPage() {
       }
     }
 
-    // Update password
     if (newPassword) {
+      changesMade = true;
       if (newPassword !== confirmPassword) {
         toast({ title: 'Password Mismatch', description: 'New passwords do not match.', variant: 'destructive' });
         hasError = true;
@@ -72,17 +79,25 @@ export function ProfileClientPage() {
       }
     }
     
-    if (!hasError) {
+    if (!changesMade && !hasError) {
+        toast({ title: 'No Changes', description: 'No information was changed.', variant: 'default' });
+    } else if (!hasError && changesMade) {
       toast({ title: 'Profile Updated', description: 'Your profile information has been saved.' });
     }
     setIsSubmitting(false);
   };
+  
+  const handleLogout = async () => {
+    await logout();
+    router.push('/'); // Redirect to landing page
+  };
 
-  if (authLoading || (!isAuthenticated && !user)) { // Show loading if auth is loading or if not authenticated yet but no user object
+
+  if (authLoading || (!isAuthenticated && !user)) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <p className="ml-2">Loading profile...</p></div>;
   }
   
-  if (!user) { // Should be caught by useEffect redirect, but as a fallback
+  if (!user) {
     return <div className="flex items-center justify-center h-full"><p>Redirecting to login...</p></div>;
   }
 
@@ -94,7 +109,7 @@ export function ProfileClientPage() {
           <CardTitle className="font-headline text-2xl text-primary flex items-center">
             <UserCircle className="mr-2 h-7 w-7" /> User Profile
           </CardTitle>
-          <CardDescription>Manage your account details and profile picture.</CardDescription>
+          <CardDescription>Manage your account details and profile picture. {user.isAdmin && <span className="font-semibold text-accent">(Administrator)</span>}</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-6">
@@ -135,7 +150,7 @@ export function ProfileClientPage() {
             </div>
           </CardContent>
           <CardFooter className="flex justify-between">
-             <Button variant="outline" type="button" onClick={() => { logout(); router.push('/');}} disabled={isSubmitting}>
+             <Button variant="outline" type="button" onClick={handleLogout} disabled={isSubmitting}>
               <LogOutIcon className="mr-2 h-4 w-4" /> Logout
             </Button>
             <Button type="submit" className="font-body" disabled={isSubmitting}>

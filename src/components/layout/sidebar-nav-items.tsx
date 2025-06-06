@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
-import { Home, UserCircle, MessageSquare, Search, FileText } from 'lucide-react'; // Added FileText
+import { LayoutGrid, UserCircle, MessageSquare, Search } from 'lucide-react'; // Changed Home to LayoutGrid, Search to Library
 import { useAuth } from '@/contexts/auth-context';
 
 const navItems = [
-  { href: '/', label: 'Resources', icon: Search, authRequired: false }, // Changed from Home to Search icon for Resources
+  { href: '/resources', label: 'Resources', icon: Search, authRequired: false }, 
   { href: '/profile', label: 'Profile', icon: UserCircle, authRequired: true },
   { href: '/chatbot', label: 'Chatbot Assistant', icon: MessageSquare, authRequired: false },
 ];
@@ -17,6 +17,8 @@ export function SidebarNavItems() {
   const { isAuthenticated } = useAuth();
 
   const isActive = (href: string) => {
+    // For root path, check exact match. For others, check startsWith.
+    if (href === '/resources') return pathname === href || pathname.startsWith(href + '/'); // Handle /resources and /resources/anything
     if (href === '/') return pathname === href;
     return pathname.startsWith(href);
   };

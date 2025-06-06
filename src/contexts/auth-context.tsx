@@ -12,6 +12,7 @@ interface User { // App-specific User interface
   email?: string;
   name?: string;
   avatarUrl?: string;
+  isAdmin?: boolean; // Added isAdmin
 }
 
 interface AuthContextType {
@@ -29,32 +30,56 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // isLoading is true initially
   const { toast } = useToast();
 
   useEffect(() => {
-    // Check for persisted user on initial mount (helps with flicker before Supabase listener fires)
-    const storedUser = localStorage.getItem('lurmUser');
-    if (storedUser) {
+    // Attempt to load user from localStorage only on the client side
+    const storedUserString = localStorage.getItem('lurmUser');
+    if (storedUserString) {
       try {
-        setUser(JSON.parse(storedUser));
+        const storedUser = JSON.parse(storedUserString);
+         // Check if stored user has isAdmin, if not, it's an older version or not fetched yet.
+        if (typeof storedUser.isAdmin !== 'undefined') {
+          setUser(storedUser); // Set user if found in localStorage
+        }
       } catch (e) {
+        console.error("Failed to parse user from localStorage", e);
         localStorage.removeItem('lurmUser');
       }
     }
-    // Initial loading true, will be set to false once onAuthStateChange fires for the first time
-    // or if there's an immediate session available (though onAuthStateChange handles this robustly).
-    setIsLoading(true); 
+    // setIsLoading(true) is not needed here as it's already true by default.
+    // setIsLoading(false) will be called by the onAuthStateChange listener.
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         const supabaseUser = session?.user;
         if (supabaseUser) {
+          let isAdmin = false;
+          // Attempt to get admin status from existing user state first if available (e.g., from localStorage)
+          if (user && user.id === supabaseUser.id && typeof user.isAdmin !== 'undefined') {
+            isAdmin = user.isAdmin;
+          } else {
+            // Otherwise, fetch from profiles table
+            const { data: profile, error: profileError } = await supabase
+              .from('profiles')
+              .select('is_admin')
+              .eq('id', supabaseUser.id)
+              .single();
+
+            if (profileError && profileError.code !== 'PGRST116') { // PGRST116: no rows found
+              console.error('Error fetching profile for admin status:', profileError.message);
+            } else if (profile) {
+              isAdmin = profile.is_admin || false;
+            }
+          }
+
           const appUser: User = {
             id: supabaseUser.id,
             email: supabaseUser.email,
             name: supabaseUser.user_metadata?.name as string || supabaseUser.email?.split('@')[0] || 'User',
             avatarUrl: supabaseUser.user_metadata?.avatar_url as string || `https://placehold.co/100x100.png?text=${(supabaseUser.user_metadata?.name as string || supabaseUser.email || 'U').charAt(0).toUpperCase()}`,
+            isAdmin: isAdmin,
           };
           setUser(appUser);
           localStorage.setItem('lurmUser', JSON.stringify(appUser));
@@ -62,19 +87,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           localStorage.removeItem('lurmUser');
         }
-        setIsLoading(false);
+        setIsLoading(false); // Set loading to false after auth state is determined
       }
     );
 
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, []);
+  }, []); // Empty dependency array ensures this runs once on mount (client-side)
 
   const login = async (email: string, password: string): Promise<{ error: AuthError | null }> => {
     setIsLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setIsLoading(false);
+    if (error) setIsLoading(false);
     return { error };
   };
 
@@ -90,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
       },
     });
-    setIsLoading(false);
+    if (error) setIsLoading(false);
     return { error };
   };
 
@@ -108,20 +133,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updateData: { name?: string; avatar_url?: string } = {};
     if (metadata.name) updateData.name = metadata.name;
     if (metadata.avatarUrl) updateData.avatar_url = metadata.avatarUrl;
+    
+    const { data: updatedAuthUser, error: authUpdateError } = await supabase.auth.updateUser({ data: updateData });
 
-    const { data: updatedSupabaseUser, error } = await supabase.auth.updateUser({ data: updateData });
-    if (updatedSupabaseUser?.user) {
+    if (authUpdateError) {
+        setIsLoading(false);
+        return { error: authUpdateError };
+    }
+
+    const profileUpdates: {name?: string; avatar_url?: string} = {};
+    if(metadata.name) profileUpdates.name = metadata.name;
+    if(metadata.avatarUrl) profileUpdates.avatar_url = metadata.avatarUrl;
+
+    if (Object.keys(profileUpdates).length > 0) {
+        const { error: profileUpdateError } = await supabase
+            .from('profiles')
+            .update(profileUpdates)
+            .eq('id', user.id);
+        
+        if (profileUpdateError) {
+            console.error("Error updating profile table:", profileUpdateError);
+        }
+    }
+
+    if (updatedAuthUser?.user) {
       const updatedAppUser: User = {
-        id: updatedSupabaseUser.user.id,
-        email: updatedSupabaseUser.user.email,
-        name: updatedSupabaseUser.user.user_metadata?.name as string || user.name,
-        avatarUrl: updatedSupabaseUser.user.user_metadata?.avatar_url as string || user.avatarUrl,
+        ...user,
+        id: updatedAuthUser.user.id,
+        email: updatedAuthUser.user.email,
+        name: updatedAuthUser.user.user_metadata?.name as string || user.name,
+        avatarUrl: updatedAuthUser.user.user_metadata?.avatar_url as string || user.avatarUrl,
       };
       setUser(updatedAppUser);
       localStorage.setItem('lurmUser', JSON.stringify(updatedAppUser));
     }
     setIsLoading(false);
-    return { error };
+    return { error: null };
   };
   
   const updatePassword = async (newPassword: string): Promise<{ error: AuthError | null }> => {
@@ -132,10 +179,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { error };
   };
 
-  if (isLoading && !user) { // Show loading only if no user is yet available (e.g. on first load)
+  // Display a loading indicator while authentication status is being determined.
+  // This check now correctly avoids localStorage access on the server.
+  if (isLoading) {
      return <div className="flex h-screen items-center justify-center"><p>Loading application...</p></div>;
   }
-
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, updateUserMetadata, updatePassword }}>
