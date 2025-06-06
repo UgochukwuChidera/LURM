@@ -31,8 +31,22 @@ export function ResourceDisplayPage() {
         .select('*');
 
       if (dbError) {
-        console.error('Error fetching resources:', dbError);
-        setError(`Failed to load resources: ${dbError.message}. Please ensure the 'resources' table exists and RLS is configured.`);
+        console.error('Supabase error occurred while fetching resources. Full error object:', dbError);
+        console.error('Error message:', dbError.message);
+        console.error('Error details:', dbError.details);
+        console.error('Error hint:', dbError.hint);
+        console.error('Error code:', dbError.code);
+
+        let detailedErrorMessage = `Failed to load resources. Supabase error: "${dbError.message || 'No specific message provided by Supabase'}".`;
+        if (dbError.code) detailedErrorMessage += ` (Code: ${dbError.code})`;
+        if (dbError.details) detailedErrorMessage += ` Details: ${dbError.details}.`;
+        if (dbError.hint) detailedErrorMessage += ` Hint: ${dbError.hint}.`;
+        detailedErrorMessage += ` Common causes: 
+1. The 'resources' table might not exist in your Supabase project. 
+2. Column names in the table might not match the application's expectations. 
+3. Row Level Security (RLS) might be enabled without a policy allowing read access. Please check your Supabase dashboard under Authentication > Policies for the 'resources' table.`;
+        
+        setError(detailedErrorMessage);
         setResources([]);
       } else {
         // Assuming the data from Supabase matches the Resource[] structure.
@@ -99,7 +113,7 @@ export function ResourceDisplayPage() {
       <h1 className="font-headline text-3xl font-bold mb-8 text-primary">University Resources</h1>
       
       {error && (
-        <Alert variant="destructive" className="mb-6">
+        <Alert variant="destructive" className="mb-6 whitespace-pre-wrap">
           <AlertTitle className="font-headline">Error Loading Resources</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
@@ -127,13 +141,15 @@ export function ResourceDisplayPage() {
           ))}
         </div>
       ) : (
-        <Alert className="mt-8">
-          <Search className="h-4 w-4" />
-          <AlertTitle className="font-headline">No Resources Found</AlertTitle>
-          <AlertDescription>
-            Try adjusting your search terms or filters, or check back later if resources are still being loaded.
-          </AlertDescription>
-        </Alert>
+        !error && ( // Only show "No Resources Found" if there isn't already an error message displayed
+          <Alert className="mt-8">
+            <Search className="h-4 w-4" />
+            <AlertTitle className="font-headline">No Resources Found</AlertTitle>
+            <AlertDescription>
+              Try adjusting your search terms or filters. If you've recently set up the database, ensure the 'resources' table is populated.
+            </AlertDescription>
+          </Alert>
+        )
       )}
     </div>
   );
