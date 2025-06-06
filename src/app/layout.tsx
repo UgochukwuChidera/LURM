@@ -53,9 +53,8 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..0,900;1,200..1,900&display=swap" rel="stylesheet" />
-        <title>Landmark University Resource Hub</title> {/* Basic title, can be overridden by pages */}
+        <title>Landmark University Resource Hub</title>
         <meta name="description" content="Manage and discover resources at Landmark University." />
-
       </head>
       <body className="font-body antialiased">
         <AuthProvider>
