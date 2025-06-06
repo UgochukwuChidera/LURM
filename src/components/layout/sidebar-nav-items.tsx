@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { SidebarMenu, SidebarMenuItem, SidebarMenuButton } from '@/components/ui/sidebar';
-import { Search, UserCircle, MessageSquare, UploadCloud } from 'lucide-react'; 
+import { Search, UserCircle, MessageSquare, UploadCloud, Users } from 'lucide-react'; 
 import { useAuth } from '@/contexts/auth-context';
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { href: '/profile', label: 'Profile', icon: UserCircle, authRequired: true },
   { href: '/chatbot', label: 'Chatbot Assistant', icon: MessageSquare, authRequired: false },
   { href: '/admin/upload-resource', label: 'Upload Resource', icon: UploadCloud, authRequired: true, adminOnly: true },
+  { href: '/admin/user-management', label: 'User Management', icon: Users, authRequired: true, adminOnly: true },
 ];
 
 export function SidebarNavItems() {
