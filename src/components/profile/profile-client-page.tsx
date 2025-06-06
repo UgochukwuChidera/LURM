@@ -41,16 +41,19 @@ export function ProfileClientPage() {
     setIsSubmitting(true);
 
     let hasError = false;
-    let changesMade = false;
+    let metadataAttempted = false;
+    let metadataUpdated = false;
+    let passwordAttempted = false;
+    let passwordUpdated = false;
 
     const metadataUpdates: { name?: string; avatarUrl?: string } = {};
     if (name !== (user.name || '')) {
         metadataUpdates.name = name;
-        changesMade = true;
+        metadataAttempted = true;
     }
     if (avatarUrlInput !== (user.avatarUrl || '')) {
         metadataUpdates.avatarUrl = avatarUrlInput;
-        changesMade = true;
+        metadataAttempted = true;
     }
     
 
@@ -59,11 +62,13 @@ export function ProfileClientPage() {
       if (error) {
         toast({ title: 'Profile Update Failed', description: `Could not update profile: ${error.message}`, variant: 'destructive' });
         hasError = true;
+      } else {
+        metadataUpdated = true;
       }
     }
 
     if (newPassword) {
-      changesMade = true;
+      passwordAttempted = true;
       if (newPassword !== confirmPassword) {
         toast({ title: 'Password Mismatch', description: 'New passwords do not match.', variant: 'destructive' });
         hasError = true;
@@ -75,21 +80,28 @@ export function ProfileClientPage() {
         } else {
           setNewPassword('');
           setConfirmPassword('');
+          passwordUpdated = true;
         }
       }
     }
     
-    if (!changesMade && !hasError) {
-        toast({ title: 'No Changes', description: 'No information was changed.', variant: 'default' });
-    } else if (!hasError && changesMade) {
-      toast({ title: 'Profile Updated', description: 'Your profile information has been saved.' });
+    if (!hasError) {
+      if (metadataUpdated && passwordUpdated) {
+        toast({ title: 'Profile & Password Updated', description: 'Your details and new password have been saved.' });
+      } else if (metadataUpdated) {
+        toast({ title: 'Profile Updated', description: 'Your name and/or avatar have been saved.' });
+      } else if (passwordUpdated) {
+        toast({ title: 'Password Changed', description: 'Your password has been successfully updated.' });
+      } else if (!metadataAttempted && !passwordAttempted) {
+        toast({ title: 'No Changes Detected', description: 'Your profile information remains the same.', variant: 'default' });
+      }
     }
     setIsSubmitting(false);
   };
   
   const handleLogout = async () => {
     await logout();
-    router.push('/'); // Redirect to landing page
+    router.push('/'); 
   };
 
 

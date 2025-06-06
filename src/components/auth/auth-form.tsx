@@ -34,7 +34,7 @@ export function AuthForm({ mode }: AuthFormProps) {
         toast({ title: 'Login Failed', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'Login Successful', description: 'Welcome back!' });
-        router.push('/resources'); // Redirect to resources page
+        router.push('/resources'); 
       }
     } else { // register mode
       if (!name.trim()) {
@@ -46,8 +46,13 @@ export function AuthForm({ mode }: AuthFormProps) {
       if (error) {
         toast({ title: 'Registration Failed', description: error.message, variant: 'destructive' });
       } else {
-        toast({ title: 'Registration Successful', description: `Welcome, ${name}! Please check your email to confirm your account if required.` });
-        router.push('/resources'); // Redirect to resources page
+        toast({ title: 'Account Created!', description: `Welcome, ${name}!` });
+        toast({ 
+          title: 'Verify Your Email Address', 
+          description: "A confirmation link has been sent to your email. Please check your inbox (and spam folder) to activate your account.",
+          duration: 10000 // Longer duration for this important message
+        });
+        router.push('/resources'); 
       }
     }
     setIsSubmitting(false);
