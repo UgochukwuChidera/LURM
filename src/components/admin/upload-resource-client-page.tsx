@@ -16,8 +16,8 @@ import type { Resource } from '@/lib/mock-data';
 import { Loader2, UploadCloud, ArrowLeft, FileUp } from 'lucide-react';
 import Link from 'next/link';
 
-const RESOURCE_TYPES: Resource['type'][] = ['Lecture Notes', 'Textbook', 'Research Paper', 'Lab Equipment', 'Software License', 'Video Lecture', 'Other'];
-const FILE_STORAGE_BUCKET = 'resource-files'; // Define your bucket name
+const RESOURCE_TYPES: Resource['type'][] = ['Lecture Notes', 'Textbook', 'Research Paper', 'Lab Equipment', 'Software License', 'Video Lecture', 'PDF Document', 'Other'];
+const FILE_STORAGE_BUCKET = 'resource-files';
 
 export function UploadResourceClientPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -62,17 +62,17 @@ export function UploadResourceClientPage() {
     }
     setIsSubmitting(true);
 
-    if (!name || !type || !course || !year || !description) {
-      toast({ title: 'Missing Fields', description: 'Please fill in all required text fields.', variant: 'destructive' });
+    if (!name || !type || !course || !year || !description || !file) {
+      toast({ title: 'Missing Fields', description: 'Please fill in all required text fields and select a file.', variant: 'destructive' });
       setIsSubmitting(false);
       return;
     }
 
     const resourceId = crypto.randomUUID();
-    let fileUrl: string | undefined = undefined;
-    let fileName: string | undefined = undefined;
-    let fileMimeType: string | undefined = undefined;
-    let fileSizeBytes: number | undefined = undefined;
+    let uploadedFileUrl: string | undefined = undefined;
+    let uploadedFileName: string | undefined = undefined;
+    let uploadedFileMimeType: string | undefined = undefined;
+    let uploadedFileSizeBytes: number | undefined = undefined;
 
     if (file) {
       const filePath = `public/${resourceId}/${file.name}`; // Using 'public' prefix for direct access if bucket is public
@@ -80,7 +80,7 @@ export function UploadResourceClientPage() {
         .from(FILE_STORAGE_BUCKET)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false,
+          upsert: false, // Consider true if you want to allow overwriting, but usually false for new uploads
         });
 
       if (uploadError) {
@@ -89,18 +89,17 @@ export function UploadResourceClientPage() {
         return;
       }
       
-      // Construct the public URL
       const { data: publicUrlData } = supabase.storage
         .from(FILE_STORAGE_BUCKET)
         .getPublicUrl(uploadData.path);
       
-      fileUrl = publicUrlData.publicUrl;
-      fileName = file.name;
-      fileMimeType = file.type;
-      fileSizeBytes = file.size;
+      uploadedFileUrl = publicUrlData.publicUrl;
+      uploadedFileName = file.name;
+      uploadedFileMimeType = file.type;
+      uploadedFileSizeBytes = file.size;
     }
 
-    const newResource: Omit<Resource, 'id' | 'created_at' | 'updated_at'> & { uploader_id?: string, id: string } = {
+    const newResourceData: Omit<Resource, 'id' | 'created_at' | 'updated_at'> & { uploader_id?: string, id: string } = {
       id: resourceId,
       name,
       type,
@@ -108,26 +107,33 @@ export function UploadResourceClientPage() {
       year: Number(year),
       description,
       keywords: keywords.split(',').map(k => k.trim()).filter(k => k),
-      fileUrl,
-      fileName,
-      fileMimeType,
-      fileSizeBytes,
+      file_url: uploadedFileUrl, // snake_case
+      file_name: uploadedFileName, // snake_case
+      file_mime_type: uploadedFileMimeType, // snake_case
+      file_size_bytes: uploadedFileSizeBytes, // snake_case
       uploader_id: user.id,
     };
-
-    // Ensure columns with potential camelCase match DB schema (e.g. file_url)
-    // The Supabase client generally handles mapping JS camelCase to snake_case,
-    // but if your DB columns are exactly fileUrl, this is fine.
-    // If DB is file_url, it will map.
-    const { error: dbError } = await supabase.from('resources').insert(newResource);
+    
+    const { error: dbError } = await supabase.from('resources').insert(newResourceData);
 
     setIsSubmitting(false);
     if (dbError) {
-      toast({ title: 'Resource Creation Failed', description: dbError.message, variant: 'destructive' });
+      toast({ title: 'Resource Creation Failed', description: `Database error: ${dbError.message} (Code: ${dbError.code}) Details: ${dbError.details} Hint: ${dbError.hint}. Please ensure your database schema is up to date and try reloading the schema cache in Supabase.`, variant: 'destructive', duration: 10000 });
       console.error("Error inserting resource:", dbError);
     } else {
       toast({ title: 'Resource Uploaded!', description: `"${name}" has been added.` });
       router.push('/resources');
+      // Reset form might be good here
+      setName('');
+      setType('Other');
+      setCourse('');
+      setYear('');
+      setDescription('');
+      setKeywords('');
+      setFile(null);
+      if (document.getElementById('file')) { // Reset file input
+        (document.getElementById('file') as HTMLInputElement).value = "";
+      }
     }
   };
 
@@ -152,7 +158,7 @@ export function UploadResourceClientPage() {
           <CardTitle className="font-headline text-2xl text-primary flex items-center">
             <UploadCloud className="mr-2 h-7 w-7" /> Upload New Resource
           </CardTitle>
-          <CardDescription>Fill in the details for the new resource. File upload is optional.</CardDescription>
+          <CardDescription>Fill in the details and upload the resource file.</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-6">
@@ -196,8 +202,8 @@ export function UploadResourceClientPage() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="file">Resource File (Optional)</Label>
-              <Input id="file" type="file" onChange={handleFileChange} disabled={isSubmitting} className="pt-2 text-sm"/>
+              <Label htmlFor="file">Resource File*</Label>
+              <Input id="file" type="file" onChange={handleFileChange} disabled={isSubmitting} className="pt-2 text-sm" required />
               {file && <p className="text-xs text-muted-foreground mt-1">Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)</p>}
               <p className="text-xs text-muted-foreground">Upload a PDF, document, video, etc. Max size depends on Supabase plan.</p>
             </div>
